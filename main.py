@@ -3,11 +3,17 @@ import os
 
 from intent.intent_engine import detect_intent
 from memory.session_state import state
+
 from email_engine.gmail_service import (
     send_email,
-    read_unread_email,
-    delete_latest_email
+    read_unread,
+    
 )
+
+from email_engine.summarize import summarize_emails
+from email_engine.search import search_email
+from email_engine.categorize import categorize_emails
+
 from utils.email_utils import extract_email
 
 
@@ -36,6 +42,7 @@ while True:
         continue
 
     if user_text == "exit":
+        print("👋 Exiting assistant")
         break
 
     print("📝 Command:", user_text)
@@ -52,10 +59,8 @@ while True:
 
         # ================= SEND =================
         if intent == "send":
-            # ---- Extract email ----
             email = extract_email(content)
 
-            # ---- Extract attachments ----
             attachments = []
             match = re.search(ATTACHMENT_REGEX, user_text)
             if match:
@@ -65,7 +70,6 @@ while True:
                 else:
                     print(f"⚠️ Attachment not found: {file_name}")
 
-            # ---- Extract links ----
             links = re.findall(URL_REGEX, user_text)
 
             state.attachments = attachments
@@ -82,7 +86,7 @@ while True:
 
         # ================= READ =================
         if intent == "read":
-            read_unread_email()
+            read_unread()
             state.reset()
             continue
 
@@ -90,6 +94,35 @@ while True:
         if intent == "delete":
             state.mode = "CONFIRM_DELETE"
             print("🤖 Are you sure you want to delete the latest email? (yes/no)")
+            continue
+
+        # ================= SUMMARIZE =================
+        if intent == "summarize":
+            summaries = summarize_emails(user_text)
+            print("\n📩 Email Summaries:\n")
+            for i, summary in enumerate(summaries, 1):
+                print(f"{i}. {summary}\n")
+            state.reset()
+            continue
+
+        # ================= SEARCH =================
+        if intent == "search":
+            if not content:
+                print("❌ Please specify what to search for.")
+                continue
+
+            result = search_email(content)
+            print("🔍", result)
+            state.reset()
+            continue
+
+        # ================= CATEGORIZE =================
+        if intent == "categorize":
+            categories = categorize_emails(limit=10)
+            print("\n📂 Inbox Categorization:")
+            for category, count in categories.items():
+                print(f"- {category}: {count} emails")
+            state.reset()
             continue
 
         print("🤖 Sorry, I didn’t understand that.")
@@ -116,7 +149,6 @@ while True:
     if state.mode == "SEND_MESSAGE":
         state.message = user_text
 
-        # Append links automatically
         if state.links:
             state.message += "\n\nLinks:\n"
             for link in state.links:
@@ -147,12 +179,4 @@ while True:
     # =====================================================
     # STATE: CONFIRM_DELETE
     # =====================================================
-    if state.mode == "CONFIRM_DELETE":
-        if user_text in ["yes", "y"]:
-            delete_latest_email()
-            print("🗑️ Email deleted.")
-        else:
-            print("❌ Delete cancelled.")
-
-        state.reset()
-        continue
+    

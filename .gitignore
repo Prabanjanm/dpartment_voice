@@ -1,0 +1,15 @@
+# Secrets
+.env
+credentials.json
+token.json
+
+# Runtime memory
+memory/followups.json
+
+# Python
+__pycache__/
+*.pyc
+venv/
+
+# Node (if any)
+node_modules/
