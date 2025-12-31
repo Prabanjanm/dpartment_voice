@@ -1,0 +1,14 @@
+faster-whisper
+sounddevice
+scipy
+numpy
+librosa
+pyttsx3
+pvporcupine
+pyaudio
+google-api-python-client
+google-auth
+google-auth-oauthlib
+google-auth-httplib2
+openai
+python-dotenv
