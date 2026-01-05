@@ -1,46 +1,63 @@
+from collections import defaultdict
 from email_engine.gmail_service import get_gmail_service
-from openai import OpenAI
-import os, base64
+from email_engine.categorize_filters import parse_categorize_filters
 
-client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
-def categorize_emails(limit=10):
+def categorize_emails(user_text: str):
+    """
+    Categorize emails based on natural language filters
+    """
+
+    filters = parse_categorize_filters(user_text)
+
     service = get_gmail_service()
-    msgs = service.users().messages().list(
-        userId="me", maxResults=limit
-    ).execute().get("messages", [])
+    response = service.users().messages().list(
+        userId="me",
+        q=filters["query"],
+        maxResults=filters["count"]
+    ).execute()
 
-    categorized = {}
+    messages = response.get("messages", [])
 
-    for msg in msgs:
+    if not messages:
+        return {"No emails": 0}
+
+    category_count = defaultdict(int)
+
+    for msg in messages:
         data = service.users().messages().get(
-            userId="me", id=msg["id"], format="full"
+            userId="me",
+            id=msg["id"],
+            format="metadata",
+            metadataHeaders=["From", "Subject"]
         ).execute()
 
-        body = ""
-        payload = data["payload"]
-        if "parts" in payload:
-            for p in payload["parts"]:
-                if p["mimeType"] == "text/plain":
-                    body = base64.urlsafe_b64decode(
-                        p["body"]["data"]
-                    ).decode()
+        headers = data.get("payload", {}).get("headers", [])
+        subject = ""
+        sender = ""
 
-        response = client.chat.completions.create(
-            model="gpt-4o-mini",
-            messages=[{
-                "role": "user",
-                "content": f"""
-                Classify this email into:
-                Important, Work, Personal, Promotion, Spam.
-                Email:
-                {body}
-                """
-            }]
-        )
+        for h in headers:
+            if h["name"] == "Subject":
+                subject = h["value"].lower()
+            if h["name"] == "From":
+                sender = h["value"].lower()
 
-        category = response.choices[0].message.content.strip()
-        categorized.setdefault(category, 0)
-        categorized[category] += 1
+        # -----------------------------
+        # SIMPLE CATEGORY RULES
+        # -----------------------------
+        if "amazon" in sender or "order" in subject:
+            category_count["Shopping"] += 1
 
-    return categorized
+        elif "interview" in subject or "hr" in sender:
+            category_count["Work"] += 1
+
+        elif "newsletter" in subject:
+            category_count["Newsletter"] += 1
+
+        elif "offer" in subject or "sale" in subject:
+            category_count["Promotion"] += 1
+
+        else:
+            category_count["General"] += 1
+
+    return dict(category_count)

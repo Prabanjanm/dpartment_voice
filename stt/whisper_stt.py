@@ -1,31 +1,44 @@
 import speech_recognition as sr
 
-recognizer = sr.Recognizer()
 
-def listen(seconds=5):
-    with sr.Microphone() as source:
-        print("🎤 Listening...")
-        recognizer.adjust_for_ambient_noise(source, duration=0.5)
+class SpeechToText:
+    """
+    Handles microphone input and converts speech to text
+    using Google Speech Recognition.
+    """
+
+    def __init__(self):
+        self.recognizer = sr.Recognizer()
+
+    def listen(self, timeout: int = 5) -> str:
+        """
+        Listens to microphone input and returns recognized text.
+        Allows pauses while speaking.
+        """
+
+        with sr.Microphone() as source:
+            self.recognizer.adjust_for_ambient_noise(source, duration=0.5)
+
+            try:
+                audio = self.recognizer.listen(
+                    source,
+                    timeout=timeout,
+                    phrase_time_limit=None  # 🔑 allow natural pauses
+                )
+            except sr.WaitTimeoutError:
+                return ""
 
         try:
-            audio = recognizer.listen(
-                source,
-                timeout=seconds,
-                phrase_time_limit=seconds
-            )
-        except sr.WaitTimeoutError:
-            print("⏱️ Listening timed out")
-            return "", "en"
+            text = self.recognizer.recognize_google(audio)
+            return text.lower()
 
-    try:
-        text = input("🧑 You: ").strip().lower()
-        print("📝 Heard:", text)
-        return text.lower(), "en"
+        except sr.UnknownValueError:
+            return ""
 
-    except sr.UnknownValueError:
-        print("❌ Could not understand audio")
-        return "", "en"
+        except sr.RequestError:
+            return ""
 
-    except sr.RequestError as e:
-        print("❌ Google STT error:", e)
-        return "", "en"
+
+
+# ✅ Singleton instance (used everywhere)
+stt = SpeechToText()

@@ -1,54 +1,61 @@
 import re
 import os
 
+# =============================
+# VOICE I/O
+# =============================
+from stt.whisper_stt import stt
+from tts.speaker import speak
+
+# =============================
+# CORE LOGIC
+# =============================
 from intent.intent_engine import detect_intent
 from memory.session_state import state
 
-from email_engine.gmail_service import (
-    send_email,
-    read_unread,
-    
-)
-
+# =============================
+# EMAIL FEATURES
+# =============================
+from email_engine.gmail_service import send_email, read_unread
 from email_engine.summarize import summarize_emails
 from email_engine.search import search_email
 from email_engine.categorize import categorize_emails
+from email_engine.followup import schedule_followup, list_followups
+from email_engine.schedular_filters import safe_json_extract
+from email_engine.schedular import send_scheduled_email
+from utils.email_normalizer import normalize_spoken_email
+
 
 from utils.email_utils import extract_email
 
-
 # =============================
-# INPUT MODE (TEXT FOR NOW)
-# =============================
-def get_input():
-    return input("🧑 You: ").strip().lower()
-
-
-# =============================
-# REGEX HELPERS
+# REGEX
 # =============================
 ATTACHMENT_REGEX = r"attachment\s+([^\s]+)"
 URL_REGEX = r"https?://[^\s]+"
 
 
-print("🚀 Gmail API Email Assistant Started")
-print("Type 'exit' to quit\n")
+# =============================
+# START ASSISTANT
+# =============================
+speak("Gmail voice assistant started. Say exit to quit.")
 
 
 while True:
-    user_text = get_input()
+    # 🎤 Listen to user
+    user_text = stt.listen(timeout=5)
 
     if not user_text:
         continue
 
-    if user_text == "exit":
-        print("👋 Exiting assistant")
+    print("🧑 You:", user_text)
+
+    if user_text in ["exit", "quit", "stop"]:
+        speak("Goodbye. Have a nice day.")
         break
 
-    print("📝 Command:", user_text)
-
     # =====================================================
-    # STATE: IDLE  → Detect intent
+    # STATE: IDLE → INTENT ROUTING
     # =====================================================
     if state.mode == "IDLE":
         intent_data = detect_intent(user_text)
@@ -56,127 +63,149 @@ while True:
         content = intent_data.get("content", "")
 
         print("🧠 Intent:", intent)
+        speak(f"I understood intent as {intent}")
 
         # ================= SEND =================
         if intent == "send":
             email = extract_email(content)
-
-            attachments = []
-            match = re.search(ATTACHMENT_REGEX, user_text)
-            if match:
-                file_name = match.group(1)
-                if os.path.exists(file_name):
-                    attachments.append(file_name)
-                else:
-                    print(f"⚠️ Attachment not found: {file_name}")
-
-            links = re.findall(URL_REGEX, user_text)
-
-            state.attachments = attachments
-            state.links = links
+            state.links = re.findall(URL_REGEX, user_text)
 
             if email:
                 state.recipient = email
                 state.mode = "SEND_MESSAGE"
-                print("🤖 What is the message?")
+                speak("What is the message?")
             else:
                 state.mode = "ASK_EMAIL"
-                print("🤖 Please say the recipient's email address.")
+                speak("Please say the recipient email address.")
             continue
 
         # ================= READ =================
         if intent == "read":
             read_unread()
+            speak("I have read your unread emails.")
             state.reset()
-            continue
-
-        # ================= DELETE =================
-        if intent == "delete":
-            state.mode = "CONFIRM_DELETE"
-            print("🤖 Are you sure you want to delete the latest email? (yes/no)")
             continue
 
         # ================= SUMMARIZE =================
         if intent == "summarize":
             summaries = summarize_emails(user_text)
-            print("\n📩 Email Summaries:\n")
-            for i, summary in enumerate(summaries, 1):
-                print(f"{i}. {summary}\n")
+            if not summaries:
+                speak("No matching emails found.")
+            else:
+                for s in summaries:
+                    speak(s)
             state.reset()
             continue
 
         # ================= SEARCH =================
         if intent == "search":
-            if not content:
-                print("❌ Please specify what to search for.")
-                continue
-
-            result = search_email(content)
-            print("🔍", result)
+            cleaned_query = normalize_spoken_email(content or user_text)
+            result = search_email(cleaned_query)
+            speak(result)
             state.reset()
             continue
 
         # ================= CATEGORIZE =================
         if intent == "categorize":
-            categories = categorize_emails(limit=10)
-            print("\n📂 Inbox Categorization:")
-            for category, count in categories.items():
-                print(f"- {category}: {count} emails")
+            categories = categorize_emails(user_text)
+            if not categories:
+                speak("No emails found to categorize.")
+            else:
+                for cat, count in categories.items():
+                    speak(f"{cat} has {count} emails")
             state.reset()
             continue
 
-        print("🤖 Sorry, I didn’t understand that.")
+        # ================= FOLLOW UP (SCHEDULE) =================
+        if intent == "followup_schedule":
+            result = schedule_followup(user_text)
+            speak(result)
+            state.reset()
+            continue
+
+        # ================= FOLLOW UP (LIST) =================
+        if intent == "followup_list":
+            result = list_followups()
+            speak(result)
+            state.reset()
+            continue
+
+        # ================= SCHEDULE SEND =================
+        if intent == "schedule_send":
+            data = safe_json_extract(user_text)
+            if not data or not data.get("send_at"):
+                speak("I couldn't understand the schedule time. Please say it again.")
+                continue
+
+            # Ask for message if missing
+            if not data.get("body"):
+                state.mode = "ASK_SCHEDULE_MESSAGE"
+                state.schedule_to = data["to"]
+                state.schedule_subject = data["subject"]
+                state.schedule_send_at = data["send_at"]
+                speak("What message would you like to send?")
+                continue
+
+            speak(send_scheduled_email(data))
+            state.reset()
+            continue
+
+        # ================= FALLBACK =================
+        speak("Sorry, I did not understand that.")
         continue
 
     # =====================================================
-    # STATE: ASK_EMAIL
+    # STATE: ASK EMAIL
     # =====================================================
     if state.mode == "ASK_EMAIL":
         email = extract_email(user_text)
 
         if not email:
-            print("❌ That doesn't look like a valid email. Please try again.")
+            speak("That does not look like a valid email. Please try again.")
             continue
 
         state.recipient = email
         state.mode = "SEND_MESSAGE"
-        print("🤖 What is the message?")
+        speak("What is the message?")
         continue
 
     # =====================================================
-    # STATE: SEND_MESSAGE
+    # STATE: SEND MESSAGE
     # =====================================================
     if state.mode == "SEND_MESSAGE":
         state.message = user_text
-
-        if state.links:
-            state.message += "\n\nLinks:\n"
-            for link in state.links:
-                state.message += f"- {link}\n"
-
         state.mode = "CONFIRM_SEND"
-        print(f"🤖 Do you want to send this email to {state.recipient}? (yes/no)")
+        speak(f"Do you want to send this email to {state.recipient}?")
         continue
 
     # =====================================================
-    # STATE: CONFIRM_SEND
+    # STATE: CONFIRM SEND
     # =====================================================
     if state.mode == "CONFIRM_SEND":
-        if user_text in ["yes", "y"]:
+        if user_text in ["yes", "yeah", "confirm"]:
             send_email(
                 to=state.recipient,
                 body=state.message,
-                attachments=state.attachments,
+                attachments=[],
                 drive_links=state.links
             )
-            print("✅ Email sent successfully.")
+            speak("Email sent successfully.")
         else:
-            print("❌ Email cancelled.")
-
+            speak("Email cancelled.")
         state.reset()
         continue
 
     # =====================================================
-    # STATE: CONFIRM_DELETE
+    # STATE: ASK SCHEDULE MESSAGE
     # =====================================================
-    
+    if state.mode == "ASK_SCHEDULE_MESSAGE":
+        data = {
+            "to": state.schedule_to,
+            "subject": state.schedule_subject,
+            "body": user_text,
+            "send_at": state.schedule_send_at
+        }
+
+        speak(send_scheduled_email(data))
+        state.reset()
+        continue
