@@ -48,6 +48,13 @@ def detect_intent(text: str) -> dict:
             "intent": "search",
             "content": user_text
         }
+    
+    if "unsubscribe" in text or "subscription" in text or "newsletter" in text:
+        return {
+        "intent": "subscription",
+        "content": text
+        }
+
 
     if any(word in user_text for word in ["categorize", "classify", "group"]):
         return {

@@ -7,18 +7,18 @@ from memory.session_state import state
 from email_engine.gmail_service import (
     send_email,
     read_unread,
-    
 )
 
 from email_engine.summarize import summarize_emails
 from email_engine.search import search_email
 from email_engine.categorize import categorize_emails
+from email_engine.subscription_manage import manage_subscriptions
 
 from utils.email_utils import extract_email
 
 
 # =============================
-# INPUT MODE (TEXT FOR NOW)
+# INPUT MODE
 # =============================
 def get_input():
     return input("🧑 You: ").strip().lower()
@@ -48,7 +48,7 @@ while True:
     print("📝 Command:", user_text)
 
     # =====================================================
-    # STATE: IDLE  → Detect intent
+    # STATE: IDLE
     # =====================================================
     if state.mode == "IDLE":
         intent_data = detect_intent(user_text)
@@ -90,12 +90,6 @@ while True:
             state.reset()
             continue
 
-        # ================= DELETE =================
-        if intent == "delete":
-            state.mode = "CONFIRM_DELETE"
-            print("🤖 Are you sure you want to delete the latest email? (yes/no)")
-            continue
-
         # ================= SUMMARIZE =================
         if intent == "summarize":
             summaries = summarize_emails(user_text)
@@ -122,6 +116,40 @@ while True:
             print("\n📂 Inbox Categorization:")
             for category, count in categories.items():
                 print(f"- {category}: {count} emails")
+            state.reset()
+            continue
+
+        # ================= SUBSCRIPTIONS =================
+        if intent == "subscription":
+            print("\n🤖 Managing your subscriptions...\n")
+            results = manage_subscriptions(user_text)
+
+            print("📬 Subscription Manager:\n")
+
+            if not results:
+                print("No subscriptions found.")
+            else:
+                for i, mail in enumerate(results, 1):
+
+                    # unsubscribe action returns strings
+                    if isinstance(mail, str):
+                        print(f"{i}. {mail}")
+                        continue
+
+                    print(f"📧 {i}. {mail.get('subject', 'No subject')}")
+                    print(f"   From   : {mail.get('from', 'Unknown')}")
+
+                    methods = mail.get("unsubscribe_methods", [])
+
+                    if not methods:
+                        print("   Action : ❌ No unsubscribe option")
+                    elif any(m.startswith("http") for m in methods):
+                        print("   Action : 🔗 Unsubscribe via link")
+                    elif any(m.startswith("mailto:") for m in methods):
+                        print("   Action : ✉️ Unsubscribe via email")
+
+                    print("-" * 45)
+
             state.reset()
             continue
 
@@ -175,8 +203,3 @@ while True:
 
         state.reset()
         continue
-
-    # =====================================================
-    # STATE: CONFIRM_DELETE
-    # =====================================================
-    

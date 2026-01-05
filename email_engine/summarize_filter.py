@@ -67,4 +67,6 @@ def parse_summarize_filters(text: str) -> dict:
     if "last week" in text:
         filters["query"] += " newer_than:7d"
 
+    print("Parsed filters:", filters)
+
     return filters

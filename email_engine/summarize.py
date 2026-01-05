@@ -31,14 +31,16 @@ def summarize_emails(user_text: str):
         q=filters["query"],
         maxResults=filters["count"]
     ).execute()
-
+   
+    print("Gmail API response:", response)
     messages = response.get("messages", [])
+    print(f"Found {len(messages)} messages.")
 
     if not messages:
         return ["No matching emails found."]
 
     summaries = []
-
+    i=1
     for msg in messages:
         data = service.users().messages().get(
             userId="me", id=msg["id"], format="full"
@@ -46,8 +48,13 @@ def summarize_emails(user_text: str):
 
         body = extract_body(data["payload"])
 
-        if not body.strip():
-            continue
+
+
+        #if not body.strip():
+        #      continue
+
+        print(i)
+        i += 1
 
         completion = client.chat.completions.create(
             model="gpt-4o-mini",
@@ -57,7 +64,8 @@ def summarize_emails(user_text: str):
             }],
             temperature=0.3
         )
-
+            
         summaries.append(completion.choices[0].message.content.strip())
+        print("Summary generated.", completion.choices[0].message.content.strip())
 
     return summaries

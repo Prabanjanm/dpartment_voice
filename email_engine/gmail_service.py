@@ -12,6 +12,7 @@ from email.mime.multipart import MIMEMultipart
 from email.mime.base import MIMEBase
 from email import encoders
 
+
 from .gmail_auth import get_gmail_service
 
 
@@ -128,3 +129,11 @@ def reply_email(thread_id, to, text):
         userId="me",
         body={"raw":raw,"threadId":thread_id}
     ).execute()
+
+
+def get_gmail_service():
+    creds = Credentials.from_authorized_user_file(
+        "token.json",
+        ["https://www.googleapis.com/auth/gmail.modify"]
+    )
+    return build("gmail", "v1", credentials=creds)
